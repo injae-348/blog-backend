@@ -1,13 +1,4 @@
-const hello = 'hello';
-
-const Koa = require('koa');
-
-const app = new Koa();
-
-app.use((ctx) => {
-  ctx.body = 'hello world';
-});
-
-app.listen(4000, () => {
-  console.log('Listening to port 4000');
-});
+// 이 파일에서만 Eslint 옵션 중 no global 비활성화
+/* eslint-disable no-global-assign */
+require = require('esm')(module /*, options*/);
+module.export = require('./main.js');
