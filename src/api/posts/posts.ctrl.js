@@ -4,10 +4,36 @@ import Joi from 'joi';
 
 const { ObjectId } = mongoose.Types;
 
-export const checkObjectId = (ctx, next) => {
+// id를 확인하는 함수에서 post를 가져오는 함수로 변환
+export const getPostById = async (ctx, next) => {
   const { id } = ctx.params;
   if (!ObjectId.isValid(id)) {
     ctx.status = 400;
+    return;
+  }
+  try {
+    const post = await Post.findById(id);
+    // 포스트가 없다면
+    if (!post) {
+      ctx.status = 404; // not found
+      return;
+    }
+    ctx.state.post = post;
+    return next();
+  } catch (e) {
+    ctx.throw(500, e);
+  }
+};
+
+/**
+ *  checkOwnPost : 미들웨어, id로 찾은 포스트가 로그인 중인
+ * 사용자가 작성한 포스트인지 확인
+ * 사용자가 작성한게 아닌경우 403 반환
+ */
+export const checkOwnPost = (ctx, next) => {
+  const { user, post } = ctx.state;
+  if (post.user._id.toString() !== user._id) {
+    ctx.status = 403;
     return;
   }
   return next();
@@ -39,11 +65,13 @@ export const write = async (ctx) => {
     return;
   }
 
+  // user를 추가해서 누가 작성자인지 확인
   const { title, body, tags } = ctx.request.body;
   const post = new Post({
     title,
     body,
     tags,
+    user: ctx.state.user,
   });
   try {
     await post.save();
@@ -54,7 +82,7 @@ export const write = async (ctx) => {
 };
 
 /**
- * GET /api/posts
+ * GET /api/posts?username=&tag=&page=
  * find 호출뒤에 exec를 붙여야 서버에 쿼리를 요청함
  *
  */
@@ -68,17 +96,24 @@ export const list = async (ctx) => {
     return;
   }
 
+  // tag, username 값이 유효하면 객체에 넣고, 그렇지 않으면 넣지 않음
+  const { tag, username } = ctx.query;
+  const query = {
+    ...(username ? { 'user.username': username } : {}),
+    ...(tag ? { tags: tag } : {}),
+  };
+
   try {
     // 역순으로 넣어주기 .sort({_id:-1})
     // 페이지에 보이는 포스터 개수 .limit(10)
-    const posts = await Post.find()
+    const posts = await Post.find(query)
       .sort({ _id: -1 })
       .limit(10)
       .skip((page - 1) * 10)
       .exec();
 
     // 커스텀 헤더를 설정하는 방식
-    const postCount = await Post.countDocuments().exec();
+    const postCount = await Post.countDocuments(query).exec();
     ctx.set('Last-Page', Math.ceil(postCount / 10));
     ctx.body = posts
       .map((post) => post.toJSON())
@@ -96,17 +131,7 @@ export const list = async (ctx) => {
  * GET /api/posts/:id
  */
 export const read = async (ctx) => {
-  const { id } = ctx.params;
-  try {
-    const post = await Post.findById(id).exec();
-    if (!post) {
-      ctx.status = 404;
-      return;
-    }
-    ctx.body = post;
-  } catch (e) {
-    ctx.throw(500, e);
-  }
+  ctx.body = ctx.state.post;
 };
 
 /**
